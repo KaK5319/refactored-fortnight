@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:turnable_page/turnable_page.dart';
+import 'package:page_flip/page_flip.dart';
 
 void main() {
   runApp(const MyApp());
@@ -35,10 +35,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（漫画・日本語向け）
-  
+  bool _isRightToLeft = true; // デフォルト右開き
+
   final Map<int, ImageProvider> _pageCache = {};
-  final PageFlipController _flipController = PageFlipController();
+  final _controller = GlobalKey<PageFlipWidgetState>();
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -90,15 +90,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     return provider;
   }
 
-  // 実際のPDFページ番号を取得（左開き/右開きでインデックスを逆転させる）
-  int _getActualPageNumber(int index) {
-    if (_isRightToLeft) {
-      return index + 1;
-    } else {
-      return _totalPages - index;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,6 +120,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               }),
                               onChanged: (value) {
                                 if (value != null) {
+                                  _controller.currentState?.goToPage(value - 1);
                                   setState(() {
                                     _currentPage = value;
                                   });
@@ -154,30 +146,16 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                         ),
                       ),
                       
-                      // 3Dページめくり表示エリア
+                      // 真ん中水平めくり対応の3Dエリア
                       Expanded(
                         child: Container(
                           color: Colors.black,
-                          child: TurnablePage(
-                            controller: _flipController,
-                            pageCount: _totalPages,
-                            pageViewMode: PageViewMode.single,
-                            // 設定: カール・めくりの起点を横中央寄りに固定
-                            settings: const FlipSettings(
-                              dragThreshold: 0.02,
-                              maxTurns: 1,
-                            ),
-                            onPageChanged: (leftIndex, rightIndex) {
-                              final rawIndex = (rightIndex ?? leftIndex ?? 0);
-                              final activeIndex = _getActualPageNumber(rawIndex);
-                              if (activeIndex != _currentPage) {
-                                setState(() {
-                                  _currentPage = activeIndex;
-                                });
-                              }
-                            },
-                            builder: (context, index, constraints) {
-                              final pageNum = _getActualPageNumber(index);
+                          child: PageFlipWidget(
+                            key: _controller,
+                            isAcrossScale: true,
+                            // 右開き/左開きの読み込み順序・ドラッグ方向の切替
+                            children: List.generate(_totalPages, (index) {
+                              final pageNum = _isRightToLeft ? (index + 1) : (_totalPages - index);
                               return FutureBuilder<ImageProvider>(
                                 future: _getPageImage(pageNum),
                                 builder: (context, snapshot) {
@@ -198,12 +176,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                                   }
                                 },
                               );
-                            },
+                            }),
                           ),
                         ),
                       ),
 
-                      // 下部ページスライダー
+                      // 下部スライダー
                       Container(
                         color: Colors.black87,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -213,6 +191,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           max: _totalPages.toDouble(),
                           divisions: _totalPages > 1 ? _totalPages - 1 : 1,
                           onChanged: (value) {
+                            _controller.currentState?.goToPage(value.toInt() - 1);
                             setState(() {
                               _currentPage = value.toInt();
                             });
