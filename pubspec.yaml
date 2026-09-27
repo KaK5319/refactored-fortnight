@@ -1,5 +1,5 @@
-name: my_pdf_reader
-description: "A Flutter 3D PDF Reader App"
+name: pdf_reader_app
+description: "A new Flutter project for reading PDFs with 3D page flip effect."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -10,11 +10,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.6
-  http: ^1.2.0
-  path_provider: ^2.1.2
   pdfx: ^2.6.0
-  turnable_page: ^0.0.2
+  path_provider: ^2.1.2
+  http: ^1.2.0
+  page_flip: ^0.2.1
 
 dev_dependencies:
   flutter_test:
