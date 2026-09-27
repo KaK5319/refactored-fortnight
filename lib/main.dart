@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:page_flip/page_flip.dart';
+import 'package:turnable_page/turnable_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -36,9 +36,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   int _totalPages = 0;
   int _currentPage = 1;
   bool _isRightToLeft = true; // デフォルト右開き
-
+  
   final Map<int, ImageProvider> _pageCache = {};
-  final _controller = GlobalKey<PageFlipWidgetState>();
+  final PageFlipController _flipController = PageFlipController();
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -120,7 +120,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               }),
                               onChanged: (value) {
                                 if (value != null) {
-                                  _controller.currentState?.goToPage(value - 1);
                                   setState(() {
                                     _currentPage = value;
                                   });
@@ -146,42 +145,58 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                         ),
                       ),
                       
-                      // 真ん中水平めくり対応の3Dエリア
+                      // 3Dページめくり表示エリア（タッチ位置補正付き）
                       Expanded(
                         child: Container(
                           color: Colors.black,
-                          child: PageFlipWidget(
-                            key: _controller,
-                            isAcrossScale: true,
-                            // 右開き/左開きの読み込み順序・ドラッグ方向の切替
-                            children: List.generate(_totalPages, (index) {
-                              final pageNum = _isRightToLeft ? (index + 1) : (_totalPages - index);
-                              return FutureBuilder<ImageProvider>(
-                                future: _getPageImage(pageNum),
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-                                    return SizedBox.expand(
-                                      child: Image(
-                                        image: snapshot.data!,
-                                        fit: BoxFit.fill,
-                                      ),
-                                    );
-                                  } else {
-                                    return Container(
-                                      color: Colors.white,
-                                      child: const Center(
-                                        child: CircularProgressIndicator(),
-                                      ),
-                                    );
-                                  }
-                                },
-                              );
-                            }),
+                          child: Directionality(
+                            textDirection: _isRightToLeft ? TextDirection.rtl : TextDirection.ltr,
+                            child: TurnablePage(
+                              controller: _flipController,
+                              pageCount: _totalPages,
+                              pageViewMode: PageViewMode.single,
+                              // 常に真ん中（水平）から素直にめくらせる設定
+                              settings: const FlipSettings(
+                                dragThreshold: 0.01,
+                                maxTurns: 1,
+                              ),
+                              onPageChanged: (leftIndex, rightIndex) {
+                                final activeIndex = (rightIndex ?? leftIndex ?? 0) + 1;
+                                if (activeIndex != _currentPage) {
+                                  setState(() {
+                                    _currentPage = activeIndex;
+                                  });
+                                }
+                              },
+                              builder: (context, index, constraints) {
+                                final pageNum = index + 1;
+                                return FutureBuilder<ImageProvider>(
+                                  future: _getPageImage(pageNum),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+                                      return SizedBox.expand(
+                                        child: Image(
+                                          image: snapshot.data!,
+                                          fit: BoxFit.fill,
+                                        ),
+                                      );
+                                    } else {
+                                      return Container(
+                                        color: Colors.white,
+                                        child: const Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                );
+                              },
+                            ),
                           ),
                         ),
                       ),
 
-                      // 下部スライダー
+                      // 下部ページスライダー
                       Container(
                         color: Colors.black87,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -191,7 +206,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           max: _totalPages.toDouble(),
                           divisions: _totalPages > 1 ? _totalPages - 1 : 1,
                           onChanged: (value) {
-                            _controller.currentState?.goToPage(value.toInt() - 1);
                             setState(() {
                               _currentPage = value.toInt();
                             });
