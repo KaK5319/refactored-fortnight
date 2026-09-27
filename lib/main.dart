@@ -35,12 +35,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（漫画・和書向け）
+  bool _isRightToLeft = true; // デフォルト右開き（漫画・日本語向け）
   
   final Map<int, ImageProvider> _pageCache = {};
   final PageFlipController _flipController = PageFlipController();
 
-  // サンプルPDFのURL
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
 
@@ -89,6 +88,15 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     final provider = MemoryImage(pageImage!.bytes);
     _pageCache[pageNumber] = provider;
     return provider;
+  }
+
+  // 実際のPDFページ番号を取得（左開き/右開きでインデックスを逆転させる）
+  int _getActualPageNumber(int index) {
+    if (_isRightToLeft) {
+      return index + 1;
+    } else {
+      return _totalPages - index;
+    }
   }
 
   @override
@@ -154,14 +162,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                             controller: _flipController,
                             pageCount: _totalPages,
                             pageViewMode: PageViewMode.single,
-                            // 読書方向の設定（右開き / 左開き）
-                            textDirection: _isRightToLeft ? TextDirection.rtl : TextDirection.ltr,
-                            // 真ん中（中央）めくりを優先・カール感を自然にする設定
+                            // 設定: カール・めくりの起点を横中央寄りに固定
                             settings: const FlipSettings(
-                              dragThreshold: 0.05,
+                              dragThreshold: 0.02,
+                              maxTurns: 1,
                             ),
                             onPageChanged: (leftIndex, rightIndex) {
-                              final activeIndex = (rightIndex ?? leftIndex ?? 0) + 1;
+                              final rawIndex = (rightIndex ?? leftIndex ?? 0);
+                              final activeIndex = _getActualPageNumber(rawIndex);
                               if (activeIndex != _currentPage) {
                                 setState(() {
                                   _currentPage = activeIndex;
@@ -169,7 +177,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               }
                             },
                             builder: (context, index, constraints) {
-                              final pageNum = index + 1;
+                              final pageNum = _getActualPageNumber(index);
                               return FutureBuilder<ImageProvider>(
                                 future: _getPageImage(pageNum),
                                 builder: (context, snapshot) {
