@@ -1,5 +1,5 @@
 name: pdf_reader_app
-description: "A new Flutter project for reading PDFs with smooth page slider."
+description: "A new Flutter project for reading PDFs with perfect horizontal page curl effect."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -13,6 +13,7 @@ dependencies:
   pdfx: ^2.6.0
   path_provider: ^2.1.2
   http: ^1.2.0
+  curl_page_view: ^0.0.3
 
 dev_dependencies:
   flutter_test:
