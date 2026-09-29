@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:curl_page_view/curl_page_view.dart';
 
 void main() {
   runApp(const MyApp());
@@ -34,10 +35,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（漫画・日本語向け）
+  bool _isRightToLeft = true; // デフォルト右開き（漫画・和書向け）
   
   final Map<int, ImageProvider> _pageCache = {};
-  late PageController _pageController;
+  late CurlPageViewController _curlController;
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -45,14 +46,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
+    _curlController = CurlPageViewController(initialPage: 0);
     _loadPdf();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadPdf() async {
@@ -96,25 +91,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     return provider;
   }
 
-  // 表示上のページ位置から実際のPDFページ番号を取得
   int _getActualPageNumber(int index) {
     if (_isRightToLeft) {
       return index + 1;
     } else {
       return _totalPages - index;
     }
-  }
-
-  void _onPageChanged(int index) {
-    final actualPage = _getActualPageNumber(index);
-    setState(() {
-      _currentPage = actualPage;
-    });
-  }
-
-  void _jumpToPage(int page) {
-    int targetIndex = _isRightToLeft ? (page - 1) : (_totalPages - page);
-    _pageController.jumpToPage(targetIndex);
   }
 
   @override
@@ -147,7 +129,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               }),
                               onChanged: (value) {
                                 if (value != null) {
-                                  _jumpToPage(value);
+                                  final targetIndex = _isRightToLeft ? (value - 1) : (_totalPages - value);
+                                  _curlController.jumpToPage(targetIndex);
+                                  setState(() {
+                                    _currentPage = value;
+                                  });
                                 }
                               },
                             ),
@@ -155,7 +141,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               onPressed: () {
                                 setState(() {
                                   _isRightToLeft = !_isRightToLeft;
-                                  _jumpToPage(_currentPage);
+                                  final targetIndex = _isRightToLeft ? (_currentPage - 1) : (_totalPages - _currentPage);
+                                  _curlController.jumpToPage(targetIndex);
                                 });
                               },
                               icon: Icon(
@@ -171,31 +158,26 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                         ),
                       ),
                       
-                      // ページ表示エリア（水平スライド・真ん中めくり）
+                      // 真ん中水平カール表示エリア
                       Expanded(
                         child: Container(
                           color: Colors.black,
-                          child: PageView.builder(
-                            controller: _pageController,
-                            reverse: !_isRightToLeft, // 左開き・右開きでスライド方向を反転
-                            itemCount: _totalPages,
-                            onPageChanged: _onPageChanged,
-                            itemBuilder: (context, index) {
+                          child: CurlPageView(
+                            controller: _curlController,
+                            isMovementVertical: false,
+                            onPageChanged: (index) {
+                              final actualPage = _getActualPageNumber(index);
+                              setState(() {
+                                _currentPage = actualPage;
+                              });
+                            },
+                            children: List.generate(_totalPages, (index) {
                               final pageNum = _getActualPageNumber(index);
                               return FutureBuilder<ImageProvider>(
                                 future: _getPageImage(pageNum),
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-                                    return Container(
-                                      decoration: const BoxDecoration(
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black54,
-                                            blurRadius: 10,
-                                            spreadRadius: 2,
-                                          )
-                                        ],
-                                      ),
+                                    return SizedBox.expand(
                                       child: Image(
                                         image: snapshot.data!,
                                         fit: BoxFit.contain,
@@ -211,7 +193,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                                   }
                                 },
                               );
-                            },
+                            }),
                           ),
                         ),
                       ),
@@ -226,7 +208,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           max: _totalPages.toDouble(),
                           divisions: _totalPages > 1 ? _totalPages - 1 : 1,
                           onChanged: (value) {
-                            _jumpToPage(value.toInt());
+                            final page = value.toInt();
+                            final targetIndex = _isRightToLeft ? (page - 1) : (_totalPages - page);
+                            _curlController.jumpToPage(targetIndex);
+                            setState(() {
+                              _currentPage = page;
+                            });
                           },
                         ),
                       ),
