@@ -1,5 +1,5 @@
 name: pdf_reader_app
-description: "A new Flutter project for reading PDFs with 3D page flip effect."
+description: "A new Flutter project for reading PDFs with smooth page slider."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -13,7 +13,6 @@ dependencies:
   pdfx: ^2.6.0
   path_provider: ^2.1.2
   http: ^1.2.0
-  page_flip: ^0.2.1
 
 dev_dependencies:
   flutter_test:
