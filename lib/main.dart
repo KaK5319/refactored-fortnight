@@ -35,15 +35,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き
+  bool _isRightToLeft = true; // デフォルト右開き（漫画・和書向け）
 
   final Map<int, ImageProvider> _pageCache = {};
 
-  // アニメーション関連
   late AnimationController _animController;
   double _dragProgress = 0.0; // 0.0 ~ 1.0
   bool _isDragging = false;
-  bool _isNextPage = true; // 次のページにめくっているか、前のページか
+  bool _isNextPage = true;
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -53,7 +52,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 250),
     )..addListener(() {
         setState(() {
           _dragProgress = _animController.value;
@@ -92,7 +91,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
 
   Future<ImageProvider> _getPageImage(int pageNumber) async {
     if (pageNumber < 1 || pageNumber > _totalPages) {
-      return const MemoryImage(uInt8ListList);
+      return const MemoryImage(transparentPixel);
     }
     if (_pageCache.containsKey(pageNumber)) {
       return _pageCache[pageNumber]!;
@@ -113,7 +112,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     return provider;
   }
 
-  static const uInt8ListList = <int>[
+  static const transparentPixel = <int>[
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
     0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
@@ -125,8 +124,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     if (_animController.isAnimating) return;
 
     final dx = details.localPosition.dx;
-    // 右開きの時：右半分から左へドラッグで次ページ、左半分から右へドラッグで前ページ
-    // 左開きの時：左半分から右へドラッグで次ページ、右半分から左へドラッグで前ページ
     if (_isRightToLeft) {
       if (dx > screenWidth / 2) {
         if (_currentPage >= _totalPages) return;
@@ -155,8 +152,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     if (!_isDragging) return;
 
     double delta = details.primaryDelta ?? 0;
-    // 右開きで次ページ（右→左）：deltaがマイナスで進行
-    // 左開きで次ページ（左→右）：deltaがプラスで進行
     double factor = 0;
     if (_isRightToLeft) {
       factor = _isNextPage ? -delta : delta;
@@ -174,8 +169,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     if (!_isDragging) return;
     _isDragging = false;
 
-    if (_dragProgress > 0.3) {
-      // めくり完了
+    if (_dragProgress > 0.25) {
       _animController.forward(from: _dragProgress).then((_) {
         setState(() {
           if (_isNextPage) {
@@ -187,7 +181,6 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
         });
       });
     } else {
-      // キャンセル（元に戻る）
       _animController.reverse(from: _dragProgress).then((_) {
         setState(() {
           _dragProgress = 0.0;
@@ -209,7 +202,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF1E1E1E),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _pdfDocument == null
@@ -257,7 +250,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                         ),
                       ),
 
-                      // メインめくりエリア
+                      // リアル電子書籍めくりエリア
                       Expanded(
                         child: GestureDetector(
                           onHorizontalDragStart: (details) => _onHorizontalDragStart(details, screenWidth),
@@ -265,12 +258,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                           onHorizontalDragEnd: _onHorizontalDragEnd,
                           child: Stack(
                             children: [
-                              // 1. ベースページ（下にあるページ）
+                              // 下層ページ（めくり後に現れるページ）
                               _buildPageView(_getUnderPageNumber()),
 
-                              // 2. めくられるページ（上にあるページ＋水平めくり変換）
+                              // 上層ページ（めくられるページ＋裏映りグラデーションめくり）
                               if (_dragProgress > 0.0)
-                                _buildCurlingPage(_getTopPageNumber(), screenWidth),
+                                _buildBookCurlEffect(_getTopPageNumber(), screenWidth),
                             ],
                           ),
                         ),
@@ -294,9 +287,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     );
   }
 
-  int _getTopPageNumber() {
-    return _currentPage;
-  }
+  int _getTopPageNumber() => _currentPage;
 
   int _getUnderPageNumber() {
     if (_isNextPage) {
@@ -323,75 +314,107 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     );
   }
 
-  // 完全水平めくり（まっすぐ折り目がつくカスタム描画）
-  Widget _buildCurlingPage(int pageNum, double screenWidth) {
-    final isRightDirection = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
+  // リアルな電子書籍めくりエフェクト構造（表・裏反転・影・光沢）
+  Widget _buildBookCurlEffect(int pageNum, double screenWidth) {
+    final isFromRight = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
+    final curlWidth = screenWidth * _dragProgress;
+    final remainWidth = screenWidth - curlWidth;
 
-    return ClipPath(
-      clipper: HorizontalCurlClipper(
-        progress: _dragProgress,
-        isFromRight: isRightDirection,
-      ),
-      child: Stack(
-        children: [
-          _buildPageView(pageNum),
-          // めくり目に沿ったまっすぐな影
-          Positioned.fill(
-            child: CustomPaint(
-              painter: HorizontalShadowPainter(
-                progress: _dragProgress,
-                isFromRight: isRightDirection,
-              ),
+    return Stack(
+      children: [
+        // 1. 表ページの残っている部分
+        ClipRect(
+          clipper: SurfaceClipper(remainWidth: remainWidth, isFromRight: isFromRight),
+          child: _buildPageView(pageNum),
+        ),
+
+        // 2. 下層ページへ落とす垂直境界影
+        Positioned.fill(
+          child: CustomPaint(
+            painter: DropShadowPainter(remainWidth: remainWidth, isFromRight: isFromRight, progress: _dragProgress),
+          ),
+        ),
+
+        // 3. めくられている部分（裏面の反転表示＋シリンダー陰影）
+        Positioned(
+          top: 0,
+          bottom: 0,
+          left: isFromRight ? remainWidth - curlWidth : remainWidth,
+          width: curlWidth,
+          child: ClipRect(
+            child: Stack(
+              children: [
+                // 裏ページの透けた左右反転表示
+                Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..scale(-1.0, 1.0, 1.0),
+                  child: Opacity(
+                    opacity: 0.85,
+                    child: _buildPageView(pageNum),
+                  ),
+                ),
+
+                // 円筒（シリンダー）型の紙のたわみグラデーション光沢
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withOpacity(0.35),
+                          Colors.white.withOpacity(0.2),
+                          Colors.black.withOpacity(0.1),
+                          Colors.black.withOpacity(0.4),
+                        ],
+                        stops: const [0.0, 0.3, 0.7, 1.0],
+                        begin: isFromRight ? Alignment.centerRight : Alignment.centerLeft,
+                        end: isFromRight ? Alignment.centerLeft : Alignment.centerRight,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-// ページを水平に切取るクリッパー（まっすぐ縦にクリップ）
-class HorizontalCurlClipper extends CustomClipper<Path> {
-  final double progress;
+class SurfaceClipper extends CustomClipper<Rect> {
+  final double remainWidth;
   final bool isFromRight;
 
-  HorizontalCurlClipper({required this.progress, required this.isFromRight});
+  SurfaceClipper({required this.remainWidth, required this.isFromRight});
 
   @override
-  Path getClip(Size size) {
-    final path = Path();
-    final clipWidth = size.width * (1.0 - progress);
-
+  Rect getClip(Size size) {
     if (isFromRight) {
-      // 右から左へめくる（左側が残る）
-      path.addRect(Rect.fromLTWH(0, 0, clipWidth, size.height));
+      return Rect.fromLTWH(0, 0, remainWidth, size.height);
     } else {
-      // 左から右へめくる（右側が残る）
-      path.addRect(Rect.fromLTWH(size.width * progress, 0, clipWidth, size.height));
+      return Rect.fromLTWH(size.width - remainWidth, 0, remainWidth, size.height);
     }
-
-    return path;
   }
 
   @override
-  bool shouldReclip(HorizontalCurlClipper oldClipper) {
-    return oldClipper.progress != progress || oldClipper.isFromRight != isFromRight;
+  bool shouldReclip(SurfaceClipper oldClipper) {
+    return oldClipper.remainWidth != remainWidth || oldClipper.isFromRight != isFromRight;
   }
 }
 
-// まっすぐなめくり端に付ける影描画
-class HorizontalShadowPainter extends CustomPainter {
-  final double progress;
+class DropShadowPainter extends CustomPainter {
+  final double remainWidth;
   final bool isFromRight;
+  final double progress;
 
-  HorizontalShadowPainter({required this.progress, required this.isFromRight});
+  DropShadowPainter({required this.remainWidth, required this.isFromRight, required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (progress <= 0.0 || progress >= 1.0) return;
 
-    final x = isFromRight ? size.width * (1.0 - progress) : size.width * progress;
-    final shadowWidth = 30.0;
+    final x = isFromRight ? remainWidth : size.width - remainWidth;
+    final shadowWidth = 24.0 * progress;
 
     final rect = isFromRight
         ? Rect.fromLTWH(x - shadowWidth, 0, shadowWidth, size.height)
@@ -399,8 +422,8 @@ class HorizontalShadowPainter extends CustomPainter {
 
     final gradient = LinearGradient(
       colors: isFromRight
-          ? [Colors.transparent, Colors.black.withOpacity(0.4)]
-          : [Colors.black.withOpacity(0.4), Colors.transparent],
+          ? [Colors.transparent, Colors.black.withOpacity(0.5)]
+          : [Colors.black.withOpacity(0.5), Colors.transparent],
     );
 
     final paint = Paint()..shader = gradient.createShader(rect);
@@ -408,7 +431,9 @@ class HorizontalShadowPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(HorizontalShadowPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.isFromRight != isFromRight;
+  bool shouldRepaint(DropShadowPainter oldDelegate) {
+    return oldDelegate.remainWidth != remainWidth ||
+        oldDelegate.isFromRight != isFromRight ||
+        oldDelegate.progress != progress;
   }
 }
