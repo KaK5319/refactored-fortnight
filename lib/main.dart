@@ -35,7 +35,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（漫画・和書向け）
+  bool _isRightToLeft = true; // デフォルト右開き
 
   final Map<int, ImageProvider> _pageCache = {};
 
@@ -261,7 +261,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                               // 下層ページ（めくり後に現れるページ）
                               _buildPageView(_getUnderPageNumber()),
 
-                              // 上層ページ（めくられるページ＋裏映りグラデーションめくり）
+                              // 上層ページ（まっすぐめくられるページ＋裏透け＋筒状光沢）
                               if (_dragProgress > 0.0)
                                 _buildBookCurlEffect(_getTopPageNumber(), screenWidth),
                             ],
@@ -314,7 +314,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     );
   }
 
-  // リアルな電子書籍めくりエフェクト構造（表・裏反転・影・光沢）
+  // 直線的でリアルな電子書籍めくりエフェクト構造
   Widget _buildBookCurlEffect(int pageNum, double screenWidth) {
     final isFromRight = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
     final curlWidth = screenWidth * _dragProgress;
@@ -328,7 +328,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
           child: _buildPageView(pageNum),
         ),
 
-        // 2. 下層ページへ落とす垂直境界影
+        // 2. 下層ページへ落とす直線の境界影
         Positioned.fill(
           child: CustomPaint(
             painter: DropShadowPainter(remainWidth: remainWidth, isFromRight: isFromRight, progress: _dragProgress),
