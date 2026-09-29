@@ -35,12 +35,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（和書・漫画向け）
+  bool _isRightToLeft = true; // デフォルト右開き
 
   final Map<int, ImageProvider> _pageCache = {};
 
   late AnimationController _animController;
-  double _dragProgress = 0.0; // 0.0 (めくりなし) ~ 1.0 (完了)
+  double _dragProgress = 0.0; // 0.0 ~ 1.0
   bool _isDragging = false;
   bool _isNextPage = true;
 
@@ -52,7 +52,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 200),
     )..addListener(() {
         setState(() {
           _dragProgress = _animController.value;
@@ -120,12 +120,15 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     0x42, 0x60, 0x82
   ];
 
+  // ドラッグ開始：タッチ座標に関係なく常に垂直な真ん中ラインから均等スライド
   void _onHorizontalDragStart(DragStartDetails details, double screenWidth) {
     if (_animController.isAnimating) return;
 
     final dx = details.localPosition.dx;
+    
+    // スライドの方向（右から左か、左から右か）を判別
     if (_isRightToLeft) {
-      if (dx > screenWidth / 2) {
+      if (dx > screenWidth * 0.3) {
         if (_currentPage >= _totalPages) return;
         _isNextPage = true;
       } else {
@@ -133,7 +136,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
         _isNextPage = false;
       }
     } else {
-      if (dx < screenWidth / 2) {
+      if (dx < screenWidth * 0.7) {
         if (_currentPage >= _totalPages) return;
         _isNextPage = true;
       } else {
@@ -153,6 +156,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
 
     double delta = details.primaryDelta ?? 0;
     double factor = 0;
+    
     if (_isRightToLeft) {
       factor = _isNextPage ? -delta : delta;
     } else {
@@ -169,7 +173,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     if (!_isDragging) return;
     _isDragging = false;
 
-    if (_dragProgress > 0.2) {
+    if (_dragProgress > 0.15) {
       _animController.forward(from: _dragProgress).then((_) {
         setState(() {
           if (_isNextPage) {
@@ -210,7 +214,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
               : SafeArea(
                   child: Column(
                     children: [
-                      // 上部操作バー
+                      // 上部バー
                       Container(
                         color: Colors.black87,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -250,26 +254,28 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                         ),
                       ),
 
-                      // 垂直シリンダー（完全直線）めくりエリア
+                      // 中央めくりエリア
                       Expanded(
                         child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
                           onHorizontalDragStart: (details) => _onHorizontalDragStart(details, screenWidth),
                           onHorizontalDragUpdate: (details) => _onHorizontalDragUpdate(details, screenWidth),
                           onHorizontalDragEnd: _onHorizontalDragEnd,
                           child: Stack(
+                            fit: StackFit.expand,
                             children: [
-                              // 1. 下層ページ（めくった後ろに見えるページ）
+                              // 1. 次のページ（下層）
                               _buildPageView(_getUnderPageNumber()),
 
-                              // 2. 上層ページ（完全垂直切り欠き＋筒状裏映り影）
+                              // 2. めくられるページ（上層：完璧な直線＆ロール影）
                               if (_dragProgress > 0.0)
-                                _buildStraightCurlEffect(_getTopPageNumber(), screenWidth),
+                                _buildVerticalRollerEffect(_getTopPageNumber(), screenWidth),
                             ],
                           ),
                         ),
                       ),
 
-                      // 下部ページスライダー
+                      // 下部スライダー
                       Container(
                         color: Colors.black87,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -314,65 +320,59 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     );
   }
 
-  // 完全な「垂直・直線」めくり描画
-  Widget _buildStraightCurlEffect(int pageNum, double screenWidth) {
+  // 右側真ん中から上下まっすぐ平行にめくれていくロールエフェクト
+  Widget _buildVerticalRollerEffect(int pageNum, double screenWidth) {
     final isFromRight = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
-    final curlWidth = screenWidth * _dragProgress;
-    final remainWidth = screenWidth - curlWidth;
+    final progressWidth = screenWidth * _dragProgress;
+    final remainWidth = screenWidth - progressWidth;
+
+    // ロール部分（筒状の太さ）
+    final rollWidth = math.min(progressWidth, 60.0);
 
     return Stack(
       children: [
-        // 1. 残っている表ページ（完全に垂直な矩形カット）
+        // A. まだ残っている表面（上から下まで完全直線でカット）
         ClipRect(
-          clipper: StraightLineClipper(remainWidth: remainWidth, isFromRight: isFromRight),
+          clipper: VerticalStraightClipper(remainWidth: remainWidth, isFromRight: isFromRight),
           child: _buildPageView(pageNum),
         ),
 
-        // 2. 垂直境界線の落とし影
-        Positioned.fill(
-          child: CustomPaint(
-            painter: StraightShadowPainter(remainWidth: remainWidth, isFromRight: isFromRight, progress: _dragProgress),
-          ),
-        ),
-
-        // 3. めくられた紙の筒状裏面（完全に垂直な帯状）
+        // B. 境界線の落とし影（縦一直線）
         Positioned(
           top: 0,
           bottom: 0,
-          left: isFromRight ? remainWidth - curlWidth : remainWidth,
-          width: curlWidth,
-          child: ClipRect(
-            child: Stack(
-              children: [
-                // 裏ページの水平反転＆透過
-                Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()..scale(-1.0, 1.0, 1.0),
-                  child: Opacity(
-                    opacity: 0.85,
-                    child: _buildPageView(pageNum),
-                  ),
-                ),
+          left: isFromRight ? remainWidth - 15 : remainWidth,
+          width: 15,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isFromRight
+                    ? [Colors.transparent, Colors.black.withOpacity(0.4)]
+                    : [Colors.black.withOpacity(0.4), Colors.transparent],
+              ),
+            ),
+          ),
+        ),
 
-                // シリンダー（筒状）の立体感を出す光沢グラデーション
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.black.withOpacity(0.45),
-                          Colors.white.withOpacity(0.30),
-                          Colors.black.withOpacity(0.10),
-                          Colors.black.withOpacity(0.55),
-                        ],
-                        stops: const [0.0, 0.2, 0.6, 1.0],
-                        begin: isFromRight ? Alignment.centerRight : Alignment.centerLeft,
-                        end: isFromRight ? Alignment.centerLeft : Alignment.centerRight,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+        // C. めくられた筒状ロール部（右側真ん中から均等に丸まってスライド）
+        Positioned(
+          top: 0,
+          bottom: 0,
+          left: isFromRight ? remainWidth : remainWidth - rollWidth,
+          width: rollWidth,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.black.withOpacity(0.5),
+                  Colors.white.withOpacity(0.35),
+                  Colors.black.withOpacity(0.2),
+                  Colors.black.withOpacity(0.6),
+                ],
+                stops: const [0.0, 0.25, 0.7, 1.0],
+                begin: isFromRight ? Alignment.centerLeft : Alignment.centerRight,
+                end: isFromRight ? Alignment.centerRight : Alignment.centerLeft,
+              ),
             ),
           ),
         ),
@@ -381,12 +381,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   }
 }
 
-// 画面上から下まで完全垂直に切り取るクリッパー
-class StraightLineClipper extends CustomClipper<Rect> {
+// 完全に垂直（180度まっすぐ）な切り抜き
+class VerticalStraightClipper extends CustomClipper<Rect> {
   final double remainWidth;
   final bool isFromRight;
 
-  StraightLineClipper({required this.remainWidth, required this.isFromRight});
+  VerticalStraightClipper({required this.remainWidth, required this.isFromRight});
 
   @override
   Rect getClip(Size size) {
@@ -398,44 +398,7 @@ class StraightLineClipper extends CustomClipper<Rect> {
   }
 
   @override
-  bool shouldReclip(StraightLineClipper oldClipper) {
+  bool shouldReclip(VerticalStraightClipper oldClipper) {
     return oldClipper.remainWidth != remainWidth || oldClipper.isFromRight != isFromRight;
-  }
-}
-
-// 完全垂直な影を描画するペインター
-class StraightShadowPainter extends CustomPainter {
-  final double remainWidth;
-  final bool isFromRight;
-  final double progress;
-
-  StraightShadowPainter({required this.remainWidth, required this.isFromRight, required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (progress <= 0.0 || progress >= 1.0) return;
-
-    final x = isFromRight ? remainWidth : size.width - remainWidth;
-    final shadowWidth = 25.0 * progress;
-
-    final rect = isFromRight
-        ? Rect.fromLTWH(x - shadowWidth, 0, shadowWidth, size.height)
-        : Rect.fromLTWH(x, 0, shadowWidth, size.height);
-
-    final gradient = LinearGradient(
-      colors: isFromRight
-          ? [Colors.transparent, Colors.black.withOpacity(0.5)]
-          : [Colors.black.withOpacity(0.5), Colors.transparent],
-    );
-
-    final paint = Paint()..shader = gradient.createShader(rect);
-    canvas.drawRect(rect, paint);
-  }
-
-  @override
-  bool shouldRepaint(StraightShadowPainter oldDelegate) {
-    return oldDelegate.remainWidth != remainWidth ||
-        oldDelegate.isFromRight != isFromRight ||
-        oldDelegate.progress != progress;
   }
 }
