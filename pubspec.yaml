@@ -1,5 +1,5 @@
 name: pdf_reader_app
-description: "A new Flutter project for reading PDFs with perfect horizontal page curl effect."
+description: "A new Flutter project with vertical cylinder page curl effect."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -10,9 +10,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # PDF表示用
   pdfx: ^2.6.0
-  path_provider: ^2.1.2
+
+  # PDFファイルのダウンロードおよびパス取得用
   http: ^1.2.0
+  path_provider: ^2.1.2
 
 dev_dependencies:
   flutter_test:
