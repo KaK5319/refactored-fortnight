@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:turnable_page/turnable_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -35,10 +34,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き
+  bool _isRightToLeft = true; // デフォルト右開き（漫画・日本語向け）
   
   final Map<int, ImageProvider> _pageCache = {};
-  final PageFlipController _flipController = PageFlipController();
+  late PageController _pageController;
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -46,7 +45,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: 0);
     _loadPdf();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPdf() async {
@@ -90,6 +96,27 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     return provider;
   }
 
+  // 表示上のページ位置から実際のPDFページ番号を取得
+  int _getActualPageNumber(int index) {
+    if (_isRightToLeft) {
+      return index + 1;
+    } else {
+      return _totalPages - index;
+    }
+  }
+
+  void _onPageChanged(int index) {
+    final actualPage = _getActualPageNumber(index);
+    setState(() {
+      _currentPage = actualPage;
+    });
+  }
+
+  void _jumpToPage(int page) {
+    int targetIndex = _isRightToLeft ? (page - 1) : (_totalPages - page);
+    _pageController.jumpToPage(targetIndex);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -120,9 +147,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               }),
                               onChanged: (value) {
                                 if (value != null) {
-                                  setState(() {
-                                    _currentPage = value;
-                                  });
+                                  _jumpToPage(value);
                                 }
                               },
                             ),
@@ -130,6 +155,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                               onPressed: () {
                                 setState(() {
                                   _isRightToLeft = !_isRightToLeft;
+                                  _jumpToPage(_currentPage);
                                 });
                               },
                               icon: Icon(
@@ -145,53 +171,47 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                         ),
                       ),
                       
-                      // 3Dページめくり表示エリア（タッチ位置補正付き）
+                      // ページ表示エリア（水平スライド・真ん中めくり）
                       Expanded(
                         child: Container(
                           color: Colors.black,
-                          child: Directionality(
-                            textDirection: _isRightToLeft ? TextDirection.rtl : TextDirection.ltr,
-                            child: TurnablePage(
-                              controller: _flipController,
-                              pageCount: _totalPages,
-                              pageViewMode: PageViewMode.single,
-                              // 常に真ん中（水平）から素直にめくらせる設定
-                              settings: const FlipSettings(
-                                dragThreshold: 0.01,
-                                maxTurns: 1,
-                              ),
-                              onPageChanged: (leftIndex, rightIndex) {
-                                final activeIndex = (rightIndex ?? leftIndex ?? 0) + 1;
-                                if (activeIndex != _currentPage) {
-                                  setState(() {
-                                    _currentPage = activeIndex;
-                                  });
-                                }
-                              },
-                              builder: (context, index, constraints) {
-                                final pageNum = index + 1;
-                                return FutureBuilder<ImageProvider>(
-                                  future: _getPageImage(pageNum),
-                                  builder: (context, snapshot) {
-                                    if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-                                      return SizedBox.expand(
-                                        child: Image(
-                                          image: snapshot.data!,
-                                          fit: BoxFit.fill,
-                                        ),
-                                      );
-                                    } else {
-                                      return Container(
-                                        color: Colors.white,
-                                        child: const Center(
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                );
-                              },
-                            ),
+                          child: PageView.builder(
+                            controller: _pageController,
+                            reverse: !_isRightToLeft, // 左開き・右開きでスライド方向を反転
+                            itemCount: _totalPages,
+                            onPageChanged: _onPageChanged,
+                            itemBuilder: (context, index) {
+                              final pageNum = _getActualPageNumber(index);
+                              return FutureBuilder<ImageProvider>(
+                                future: _getPageImage(pageNum),
+                                builder: (context, snapshot) {
+                                  if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+                                    return Container(
+                                      decoration: const BoxDecoration(
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black54,
+                                            blurRadius: 10,
+                                            spreadRadius: 2,
+                                          )
+                                        ],
+                                      ),
+                                      child: Image(
+                                        image: snapshot.data!,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    );
+                                  } else {
+                                    return Container(
+                                      color: Colors.white,
+                                      child: const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    );
+                                  }
+                                },
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -206,9 +226,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           max: _totalPages.toDouble(),
                           divisions: _totalPages > 1 ? _totalPages - 1 : 1,
                           onChanged: (value) {
-                            setState(() {
-                              _currentPage = value.toInt();
-                            });
+                            _jumpToPage(value.toInt());
                           },
                         ),
                       ),
