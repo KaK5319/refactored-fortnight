@@ -1,9 +1,9 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:curl_page_view/curl_page_view.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,15 +30,20 @@ class PdfReaderScreen extends StatefulWidget {
   State<PdfReaderScreen> createState() => _PdfReaderScreenState();
 }
 
-class _PdfReaderScreenState extends State<PdfReaderScreen> {
+class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProviderStateMixin {
   PdfDocument? _pdfDocument;
   bool _isLoading = true;
   int _totalPages = 0;
   int _currentPage = 1;
-  bool _isRightToLeft = true; // デフォルト右開き（漫画・和書向け）
-  
+  bool _isRightToLeft = true; // デフォルト右開き
+
   final Map<int, ImageProvider> _pageCache = {};
-  late CurlPageViewController _curlController;
+
+  // アニメーション関連
+  late AnimationController _animController;
+  double _dragProgress = 0.0; // 0.0 ~ 1.0
+  bool _isDragging = false;
+  bool _isNextPage = true; // 次のページにめくっているか、前のページか
 
   final String _samplePdfUrl =
       'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi09.pdf';
@@ -46,8 +51,22 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   @override
   void initState() {
     super.initState();
-    _curlController = CurlPageViewController(initialPage: 0);
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addListener(() {
+        setState(() {
+          _dragProgress = _animController.value;
+        });
+      });
+
     _loadPdf();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPdf() async {
@@ -72,6 +91,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
   }
 
   Future<ImageProvider> _getPageImage(int pageNumber) async {
+    if (pageNumber < 1 || pageNumber > _totalPages) {
+      return const MemoryImage(uInt8ListList);
+    }
     if (_pageCache.containsKey(pageNumber)) {
       return _pageCache[pageNumber]!;
     }
@@ -91,16 +113,101 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
     return provider;
   }
 
-  int _getActualPageNumber(int index) {
+  static const uInt8ListList = <int>[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82
+  ];
+
+  void _onHorizontalDragStart(DragStartDetails details, double screenWidth) {
+    if (_animController.isAnimating) return;
+
+    final dx = details.localPosition.dx;
+    // 右開きの時：右半分から左へドラッグで次ページ、左半分から右へドラッグで前ページ
+    // 左開きの時：左半分から右へドラッグで次ページ、右半分から左へドラッグで前ページ
     if (_isRightToLeft) {
-      return index + 1;
+      if (dx > screenWidth / 2) {
+        if (_currentPage >= _totalPages) return;
+        _isNextPage = true;
+      } else {
+        if (_currentPage <= 1) return;
+        _isNextPage = false;
+      }
     } else {
-      return _totalPages - index;
+      if (dx < screenWidth / 2) {
+        if (_currentPage >= _totalPages) return;
+        _isNextPage = true;
+      } else {
+        if (_currentPage <= 1) return;
+        _isNextPage = false;
+      }
     }
+
+    setState(() {
+      _isDragging = true;
+      _dragProgress = 0.0;
+    });
+  }
+
+  void _onHorizontalDragUpdate(DragUpdateDetails details, double screenWidth) {
+    if (!_isDragging) return;
+
+    double delta = details.primaryDelta ?? 0;
+    // 右開きで次ページ（右→左）：deltaがマイナスで進行
+    // 左開きで次ページ（左→右）：deltaがプラスで進行
+    double factor = 0;
+    if (_isRightToLeft) {
+      factor = _isNextPage ? -delta : delta;
+    } else {
+      factor = _isNextPage ? delta : -delta;
+    }
+
+    setState(() {
+      _dragProgress += factor / screenWidth;
+      _dragProgress = _dragProgress.clamp(0.0, 1.0);
+    });
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    if (!_isDragging) return;
+    _isDragging = false;
+
+    if (_dragProgress > 0.3) {
+      // めくり完了
+      _animController.forward(from: _dragProgress).then((_) {
+        setState(() {
+          if (_isNextPage) {
+            _currentPage++;
+          } else {
+            _currentPage--;
+          }
+          _dragProgress = 0.0;
+        });
+      });
+    } else {
+      // キャンセル（元に戻る）
+      _animController.reverse(from: _dragProgress).then((_) {
+        setState(() {
+          _dragProgress = 0.0;
+        });
+      });
+    }
+  }
+
+  void _goToPage(int page) {
+    if (page < 1 || page > _totalPages || page == _currentPage) return;
+    setState(() {
+      _currentPage = page;
+      _dragProgress = 0.0;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: _isLoading
@@ -128,21 +235,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                                 );
                               }),
                               onChanged: (value) {
-                                if (value != null) {
-                                  final targetIndex = _isRightToLeft ? (value - 1) : (_totalPages - value);
-                                  _curlController.jumpToPage(targetIndex);
-                                  setState(() {
-                                    _currentPage = value;
-                                  });
-                                }
+                                if (value != null) _goToPage(value);
                               },
                             ),
                             TextButton.icon(
                               onPressed: () {
                                 setState(() {
                                   _isRightToLeft = !_isRightToLeft;
-                                  final targetIndex = _isRightToLeft ? (_currentPage - 1) : (_totalPages - _currentPage);
-                                  _curlController.jumpToPage(targetIndex);
                                 });
                               },
                               icon: Icon(
@@ -157,43 +256,22 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           ],
                         ),
                       ),
-                      
-                      // 真ん中水平カール表示エリア
+
+                      // メインめくりエリア
                       Expanded(
-                        child: Container(
-                          color: Colors.black,
-                          child: CurlPageView(
-                            controller: _curlController,
-                            isMovementVertical: false,
-                            onPageChanged: (index) {
-                              final actualPage = _getActualPageNumber(index);
-                              setState(() {
-                                _currentPage = actualPage;
-                              });
-                            },
-                            children: List.generate(_totalPages, (index) {
-                              final pageNum = _getActualPageNumber(index);
-                              return FutureBuilder<ImageProvider>(
-                                future: _getPageImage(pageNum),
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-                                    return SizedBox.expand(
-                                      child: Image(
-                                        image: snapshot.data!,
-                                        fit: BoxFit.contain,
-                                      ),
-                                    );
-                                  } else {
-                                    return Container(
-                                      color: Colors.white,
-                                      child: const Center(
-                                        child: CircularProgressIndicator(),
-                                      ),
-                                    );
-                                  }
-                                },
-                              );
-                            }),
+                        child: GestureDetector(
+                          onHorizontalDragStart: (details) => _onHorizontalDragStart(details, screenWidth),
+                          onHorizontalDragUpdate: (details) => _onHorizontalDragUpdate(details, screenWidth),
+                          onHorizontalDragEnd: _onHorizontalDragEnd,
+                          child: Stack(
+                            children: [
+                              // 1. ベースページ（下にあるページ）
+                              _buildPageView(_getUnderPageNumber()),
+
+                              // 2. めくられるページ（上にあるページ＋水平めくり変換）
+                              if (_dragProgress > 0.0)
+                                _buildCurlingPage(_getTopPageNumber(), screenWidth),
+                            ],
                           ),
                         ),
                       ),
@@ -207,19 +285,130 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> {
                           min: 1,
                           max: _totalPages.toDouble(),
                           divisions: _totalPages > 1 ? _totalPages - 1 : 1,
-                          onChanged: (value) {
-                            final page = value.toInt();
-                            final targetIndex = _isRightToLeft ? (page - 1) : (_totalPages - page);
-                            _curlController.jumpToPage(targetIndex);
-                            setState(() {
-                              _currentPage = page;
-                            });
-                          },
+                          onChanged: (value) => _goToPage(value.toInt()),
                         ),
                       ),
                     ],
                   ),
                 ),
     );
+  }
+
+  int _getTopPageNumber() {
+    return _currentPage;
+  }
+
+  int _getUnderPageNumber() {
+    if (_isNextPage) {
+      return math.min(_currentPage + 1, _totalPages);
+    } else {
+      return math.max(_currentPage - 1, 1);
+    }
+  }
+
+  Widget _buildPageView(int pageNum) {
+    return FutureBuilder<ImageProvider>(
+      future: _getPageImage(pageNum),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+          return SizedBox.expand(
+            child: Image(
+              image: snapshot.data!,
+              fit: BoxFit.contain,
+            ),
+          );
+        }
+        return Container(color: Colors.white);
+      },
+    );
+  }
+
+  // 完全水平めくり（まっすぐ折り目がつくカスタム描画）
+  Widget _buildCurlingPage(int pageNum, double screenWidth) {
+    final isRightDirection = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
+
+    return ClipPath(
+      clipper: HorizontalCurlClipper(
+        progress: _dragProgress,
+        isFromRight: isRightDirection,
+      ),
+      child: Stack(
+        children: [
+          _buildPageView(pageNum),
+          // めくり目に沿ったまっすぐな影
+          Positioned.fill(
+            child: CustomPaint(
+              painter: HorizontalShadowPainter(
+                progress: _dragProgress,
+                isFromRight: isRightDirection,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ページを水平に切取るクリッパー（まっすぐ縦にクリップ）
+class HorizontalCurlClipper extends CustomClipper<Path> {
+  final double progress;
+  final bool isFromRight;
+
+  HorizontalCurlClipper({required this.progress, required this.isFromRight});
+
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    final clipWidth = size.width * (1.0 - progress);
+
+    if (isFromRight) {
+      // 右から左へめくる（左側が残る）
+      path.addRect(Rect.fromLTWH(0, 0, clipWidth, size.height));
+    } else {
+      // 左から右へめくる（右側が残る）
+      path.addRect(Rect.fromLTWH(size.width * progress, 0, clipWidth, size.height));
+    }
+
+    return path;
+  }
+
+  @override
+  bool shouldReclip(HorizontalCurlClipper oldClipper) {
+    return oldClipper.progress != progress || oldClipper.isFromRight != isFromRight;
+  }
+}
+
+// まっすぐなめくり端に付ける影描画
+class HorizontalShadowPainter extends CustomPainter {
+  final double progress;
+  final bool isFromRight;
+
+  HorizontalShadowPainter({required this.progress, required this.isFromRight});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0.0 || progress >= 1.0) return;
+
+    final x = isFromRight ? size.width * (1.0 - progress) : size.width * progress;
+    final shadowWidth = 30.0;
+
+    final rect = isFromRight
+        ? Rect.fromLTWH(x - shadowWidth, 0, shadowWidth, size.height)
+        : Rect.fromLTWH(x, 0, shadowWidth, size.height);
+
+    final gradient = LinearGradient(
+      colors: isFromRight
+          ? [Colors.transparent, Colors.black.withOpacity(0.4)]
+          : [Colors.black.withOpacity(0.4), Colors.transparent],
+    );
+
+    final paint = Paint()..shader = gradient.createShader(rect);
+    canvas.drawRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(HorizontalShadowPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.isFromRight != isFromRight;
   }
 }
