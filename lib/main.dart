@@ -120,13 +120,11 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     0x42, 0x60, 0x82
   ];
 
-  // ドラッグ開始：タッチ座標に関係なく常に垂直な真ん中ラインから均等スライド
   void _onHorizontalDragStart(DragStartDetails details, double screenWidth) {
     if (_animController.isAnimating) return;
 
     final dx = details.localPosition.dx;
     
-    // スライドの方向（右から左か、左から右か）を判別
     if (_isRightToLeft) {
       if (dx > screenWidth * 0.3) {
         if (_currentPage >= _totalPages) return;
@@ -267,7 +265,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                               // 1. 次のページ（下層）
                               _buildPageView(_getUnderPageNumber()),
 
-                              // 2. めくられるページ（上層：完璧な直線＆ロール影）
+                              // 2. めくられるページ（完全垂直カット＋縦ロール影）
                               if (_dragProgress > 0.0)
                                 _buildVerticalRollerEffect(_getTopPageNumber(), screenWidth),
                             ],
@@ -320,24 +318,23 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     );
   }
 
-  // 右側真ん中から上下まっすぐ平行にめくれていくロールエフェクト
+  // 完全垂直なロールエフェクト描画
   Widget _buildVerticalRollerEffect(int pageNum, double screenWidth) {
     final isFromRight = (_isRightToLeft && _isNextPage) || (!_isRightToLeft && !_isNextPage);
     final progressWidth = screenWidth * _dragProgress;
     final remainWidth = screenWidth - progressWidth;
 
-    // ロール部分（筒状の太さ）
     final rollWidth = math.min(progressWidth, 60.0);
 
     return Stack(
       children: [
-        // A. まだ残っている表面（上から下まで完全直線でカット）
+        // A. 残っている表面（完全垂直カット）
         ClipRect(
           clipper: VerticalStraightClipper(remainWidth: remainWidth, isFromRight: isFromRight),
           child: _buildPageView(pageNum),
         ),
 
-        // B. 境界線の落とし影（縦一直線）
+        // B. 垂直な境界線の陰影
         Positioned(
           top: 0,
           bottom: 0,
@@ -354,7 +351,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
           ),
         ),
 
-        // C. めくられた筒状ロール部（右側真ん中から均等に丸まってスライド）
+        // C. 筒状ロール部分（垂直スライド）
         Positioned(
           top: 0,
           bottom: 0,
@@ -381,7 +378,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   }
 }
 
-// 完全に垂直（180度まっすぐ）な切り抜き
+// 画面上部から下部まで完全に垂直（直線）に切り抜く
 class VerticalStraightClipper extends CustomClipper<Rect> {
   final double remainWidth;
   final bool isFromRight;
