@@ -50,9 +50,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
+    // ★ めくりスピードを1段階速く修正（200ms -> 120ms）
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 120),
     )..addListener(() {
         setState(() {
           _dragProgress = _animController.value;
@@ -262,10 +263,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              // 1. 次のページ（下層）
+                              // 1. 下層（めくられた後に現れるページ）
                               _buildPageView(_getUnderPageNumber()),
 
-                              // 2. めくられるページ（上層：完全垂直直線カット＋円筒ロール影）
+                              // 2. 上層（180度垂直カット＋円筒ロール陰影）
                               if (_dragProgress > 0.0)
                                 _buildVerticalRollerEffect(_getTopPageNumber(), screenWidth),
                             ],
@@ -324,17 +325,17 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
     final progressWidth = screenWidth * _dragProgress;
     final remainWidth = screenWidth - progressWidth;
 
-    final rollWidth = math.min(progressWidth, 50.0);
+    final rollWidth = math.min(progressWidth, 60.0);
 
     return Stack(
       children: [
-        // A. 表面（垂直切り抜き）
+        // A. 表面（180度垂直切り抜き）
         ClipRect(
           clipper: VerticalStraightClipper(remainWidth: remainWidth, isFromRight: isFromRight),
           child: _buildPageView(pageNum),
         ),
 
-        // B. 垂直境界線の影（180度まっすぐ）
+        // B. 垂直境界線の影（まっすぐ縦に伸びる落ち影）
         Positioned(
           top: 0,
           bottom: 0,
@@ -351,7 +352,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
           ),
         ),
 
-        // C. 円筒状（ロール）ハイライト/シャドウ
+        // C. 円筒状（SideBooks風ロール）ハイライト/シャドウ
         Positioned(
           top: 0,
           bottom: 0,
@@ -362,9 +363,9 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
               gradient: LinearGradient(
                 colors: [
                   Colors.black.withOpacity(0.5),
-                  Colors.white.withOpacity(0.35),
+                  Colors.white.withOpacity(0.4),
                   Colors.black.withOpacity(0.2),
-                  Colors.black.withOpacity(0.6),
+                  Colors.black.withOpacity(0.65),
                 ],
                 stops: const [0.0, 0.25, 0.7, 1.0],
                 begin: isFromRight ? Alignment.centerLeft : Alignment.centerRight,
@@ -378,7 +379,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen> with SingleTickerProv
   }
 }
 
-// 画面上部から下部まで完全に垂直直線でマスクするクリッパー
+// 画面上部から下部まで完全に垂直直線（180度）でマスクするクリッパー
 class VerticalStraightClipper extends CustomClipper<Rect> {
   final double remainWidth;
   final bool isFromRight;
